@@ -3,6 +3,65 @@ import React, { useState } from 'react';
 import {useSortable} from '@dnd-kit/react/sortable';
 import { DragDropProvider } from '@dnd-kit/react';
 import { FaCheck, FaX, FaQuestion } from "react-icons/fa6";
+import OpenAI from "openai";
+import { zodResponseFormat } from "openai/helpers/zod";
+import { z } from "zod";
+
+/**
+ * TODO: Calc costs
+ * TODO: Put costs in footer
+ * TODO: set up loading screen on new game
+ * TODO: Drag and drop sometimes randomly re-orders
+ * TODO: Figure out how to better exclude secrets
+ */
+
+
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  organization: process.env.OPENAI_ORGANIZATION_KEY,
+  project: process.env.OPENAI_PROJECT_KEY,
+  dangerouslyAllowBrowser: true
+});
+
+const Brand = z.object({
+  id: z.string(),
+  name: z.string(),
+  hexCode: z.string()
+});
+
+const Brands = z.object({
+  brands: z.array(Brand),
+});
+
+const generateBrands = async () => {
+
+  const completion = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "system", content: "You only know highly-random real world brands, and colors in hex." },
+      { role: "user", content: "Generate 5 brands" },
+    ],
+    response_format: zodResponseFormat(Brands, "brands"),
+  });
+
+
+ // console.log(completion.usage.total_tokens);
+
+/*
+ let newCost = {...cost, 
+    inputTokens: cost.inputTokens + completion.usage.input_tokens,
+    outputTokens: cost.inputTokens + completion.usage.output_tokens,
+    inputCost: cost.inputTokenCost * newCost.inputTokens,
+    outputCost: cost.outputTokenCost * newCost.outputTokens,
+ };
+
+ setCost(newCost);*/
+
+  return JSON.parse(completion.choices[0].message.content).brands;
+}
+
+
 
 function Sortable({id, index, value, disabled}) {
   const {ref} = useSortable({id, index, value, disabled});
@@ -46,8 +105,22 @@ export const GameResult = {
 }
 
 
+
+
+
 export default function BrandMatcher() {
 
+
+
+  const [cost, setCost] = useState({
+    requests: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    inputTokenCost: 0.150/1000000,
+    outputTokenCost: 0.600/1000000,  
+    inputCost: 0,
+    outputCost: 0,
+  });
 
   const [game, setGame] = useState(
     {
@@ -108,7 +181,8 @@ export default function BrandMatcher() {
     setGame(gameResults);
   }
 
-  function handleStartGame() {
+ async function handleStartGame() {
+
     let gameDefault = {
       state: GameState.active,
       result: null,
@@ -116,44 +190,20 @@ export default function BrandMatcher() {
       attempts: [],
     }
 
-    let guesses = [
-      {
-        id: 0,
-        name:'Another Company',
-        isCorrect: false,
-      },
-      {
-        id: 1,
-        name:'Walmart',
-        isCorrect: false,
-      },
-      {
-        id: 2,
-        name:'FaceBook',
-        isCorrect: false,
-      }
-    ];
+    let brands = await generateBrands();
 
-    let brands = [
-      {
-          id: 0,
-          name:'Another Company',
-          hexCode:'#004269'
-      },
-      {
-          id: 1,
-          name:'Walmart',
-          hexCode:'#0075d7'
-      },
-      {
-          id: 2,
-          name:'FaceBook',
-          hexCode:'#006df9'
-      }
-  ];
+    let guesses = [];
+    brands.map( brand => {
+      guesses.push({
+        id: brand.id,
+        name: brand.name,
+        isCorrect: false,
+      })
+    });
+
 
     setGame(gameDefault);
-    setGuesses(guesses);
+    setGuesses(shuffle(guesses));
     setBrands(brands);
   }
 
@@ -268,3 +318,10 @@ const swapElements = (arr, pos1, pos2) => {
 
   return arr;
 };
+const shuffle = (array) => { 
+  for (let i = array.length - 1; i > 0; i--) { 
+    const j = Math.floor(Math.random() * (i + 1)); 
+    [array[i], array[j]] = [array[j], array[i]]; 
+  } 
+  return array; 
+}; 
