@@ -18,9 +18,9 @@ import { z } from "zod";
 
 
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  organization: process.env.OPENAI_ORGANIZATION_KEY,
-  project: process.env.OPENAI_PROJECT_KEY,
+  apiKey: process.env.NEXT_PUBLIC_OPENAI_API_KEY,
+  organization: process.env.NEXT_PUBLIC_OPENAI_ORGANIZATION_KEY,
+  project: process.env.NEXT_PUBLIC_OPENAI_PROJECT_KEY,
   dangerouslyAllowBrowser: true
 });
 
