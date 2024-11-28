@@ -2,13 +2,12 @@
 import React, { useState } from 'react';
 import {useSortable} from '@dnd-kit/react/sortable';
 import { DragDropProvider } from '@dnd-kit/react';
-import { FaCheck, FaX, FaQuestion } from "react-icons/fa6";
+import { FaCheck, FaX, FaQuestion, FaSpinner } from "react-icons/fa6";
 import OpenAI from "openai";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { z } from "zod";
 
 /**
- * TODO: set up loading screen on new game
  * TODO: Drag and drop sometimes randomly re-orders
  * TODO: Figure out how to better exclude secrets
  */
@@ -100,6 +99,8 @@ export default function BrandMatcher() {
 
   
   async function handleStartGame() {
+
+    setGame({...game, state: GameState.loading});
 
     let gameDefault = {
       state: GameState.active,
@@ -200,6 +201,12 @@ export default function BrandMatcher() {
 
   return (
     <>
+      {game.state == GameState.loading  ?
+        <div className="absolute top-0 bottom-0 left-0 right-0 backdrop-blur bg-black/90 content-center justify-items-center"> 
+            <FaSpinner className="text-8xl animate-spin" />
+        </div>
+      : ''}
+
       {game.state == GameState.pending  ?
         <div>
           <h1 className="text-4xl font-bold mb-5">Brand Matcher!</h1>
