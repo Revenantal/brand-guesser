@@ -8,8 +8,6 @@ import { zodResponseFormat } from "openai/helpers/zod";
 import { z } from "zod";
 
 /**
- * TODO: Calc costs
- * TODO: Put costs in footer
  * TODO: set up loading screen on new game
  * TODO: Drag and drop sometimes randomly re-orders
  * TODO: Figure out how to better exclude secrets
@@ -33,34 +31,6 @@ const Brand = z.object({
 const Brands = z.object({
   brands: z.array(Brand),
 });
-
-const generateBrands = async () => {
-
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [
-      { role: "system", content: "You only know highly-random real world brands, and colors in hex." },
-      { role: "user", content: "Generate 5 brands" },
-    ],
-    response_format: zodResponseFormat(Brands, "brands"),
-  });
-
-
- // console.log(completion.usage.total_tokens);
-
-/*
- let newCost = {...cost, 
-    inputTokens: cost.inputTokens + completion.usage.input_tokens,
-    outputTokens: cost.inputTokens + completion.usage.output_tokens,
-    inputCost: cost.inputTokenCost * newCost.inputTokens,
-    outputCost: cost.outputTokenCost * newCost.outputTokens,
- };
-
- setCost(newCost);*/
-
-  return JSON.parse(completion.choices[0].message.content).brands;
-}
-
 
 
 function Sortable({id, index, value, disabled}) {
@@ -104,22 +74,16 @@ export const GameResult = {
   lost: "lost",
 }
 
-
-
-
-
 export default function BrandMatcher() {
-
-
 
   const [cost, setCost] = useState({
     requests: 0,
-    inputTokens: 0,
-    outputTokens: 0,
-    inputTokenCost: 0.150/1000000,
-    outputTokenCost: 0.600/1000000,  
-    inputCost: 0,
-    outputCost: 0,
+    prompt_tokens: 0,
+    completion_tokens: 0,
+    prompt_token_cost: 0.150/1000000,
+    completion_token_cost: 0.600/1000000,  
+    prompt_cost: 0,
+    completion_cost: 0,
   });
 
   const [game, setGame] = useState(
@@ -132,9 +96,33 @@ export default function BrandMatcher() {
 
   const [brands, setBrands] = useState([]);
   const [guesses, setGuesses] = useState([])
+
+
   
-  function onDragEnd(event) {
-    setGuesses((guesses) => swapElements(guesses, event.operation.target.sortable.initialIndex, event.operation.target.sortable.previousIndex));
+  async function handleStartGame() {
+
+    let gameDefault = {
+      state: GameState.active,
+      result: null,
+      maxAttempts: 3,
+      attempts: [],
+    }
+
+    let brands = await generateBrands();
+
+    let guesses = [];
+    brands.map( brand => {
+      guesses.push({
+        id: brand.id,
+        name: brand.name,
+        isCorrect: false,
+      })
+    });
+
+
+    setGame(gameDefault);
+    setGuesses(shuffle(guesses));
+    setBrands(brands);
   }
 
   function handleSubmitGuess() {
@@ -181,131 +169,136 @@ export default function BrandMatcher() {
     setGame(gameResults);
   }
 
- async function handleStartGame() {
+  function onDragEnd(event) {
+    setGuesses((guesses) => swapElements(guesses, event.operation.target.sortable.initialIndex, event.operation.target.sortable.previousIndex));
+  }
 
-    let gameDefault = {
-      state: GameState.active,
-      result: null,
-      maxAttempts: 3,
-      attempts: [],
-    }
+  const generateBrands = async () => {
 
-    let brands = await generateBrands();
-
-    let guesses = [];
-    brands.map( brand => {
-      guesses.push({
-        id: brand.id,
-        name: brand.name,
-        isCorrect: false,
-      })
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "You only know highly-random real world brands, and colors in hex." },
+        { role: "user", content: "Generate 5 brands" },
+      ],
+      response_format: zodResponseFormat(Brands, "brands"),
     });
 
+    let newCost = {...cost, 
+        requests: cost.requests + 1,
+        prompt_tokens: cost.prompt_tokens + completion.usage.prompt_tokens,
+        prompt_cost: cost.prompt_token_cost * (cost.prompt_tokens + completion.usage.prompt_tokens),
+        completion_tokens: cost.completion_tokens + completion.usage.completion_tokens,
+        completion_cost: cost.completion_token_cost * (cost.completion_tokens + completion.usage.completion_tokens),
+    };
 
-    setGame(gameDefault);
-    setGuesses(shuffle(guesses));
-    setBrands(brands);
+    setCost(newCost);
+
+    return JSON.parse(completion.choices[0].message.content).brands;
   }
+
 
   return (
     <>
-
-  {game.state == GameState.pending  ?
-    <div>
-      <h1 className="text-4xl font-bold mb-5">Brand Matcher!</h1>
-      <div className="text-2xl max-w-prose">
-        <div className="mb-5">Welcome to Brand Guesser!</div>
-        <div className="mb-10">You will be given 3 attempts to match the brand colour to the brand name. All brand colours and names are generated at random with ChatGPT!</div>
-      </div>
-      <button
-        className={"bg-indigo-500 p-2 px-5 rounded-md hover:bg-indigo-700 transition-colors text-2xl"}
-        value="Submit"
-        onClick={(e) => {
-            handleStartGame();
-        }}
-      >Start a New Game</button>
-    </div>
-
-  : ''}
-
-    {game.state == GameState.active || game.state == GameState.results ?
-    <div>
-      <h1 className="text-4xl font-bold mb-5">Match The Brands!</h1>
-      <h4 className="text-l mb-5">Test your brand knowledge and try to match the brand name to the brand colour</h4>
-      <div className="flex justify-center gap-5 mb-6">
-        {[...Array(game.maxAttempts).keys()].map((key) => 
-          <div className="w-20 h-20 bg-slate-800 rounded content-center" key={key}>
-          
-            <GuessResult  attempt={game.attempts[key]}/>     
+      {game.state == GameState.pending  ?
+        <div>
+          <h1 className="text-4xl font-bold mb-5">Brand Matcher!</h1>
+          <div className="text-2xl max-w-prose">
+            <div className="mb-5">Welcome to Brand Guesser!</div>
+            <div className="mb-10">You will be given 3 attempts to match the brand colour to the brand name. All brand colours and names are generated at random with ChatGPT!</div>
           </div>
-        )}
-      </div>
-
-      <div className="grid grid-cols-3 gap-5">
-      <div className="grid grid-cols-1 gap-2">
-        {brands.map((brand, index) =>
-          <div className="h-40 rounded-md p-5 place-content-center text-xl" key={index} style={{ backgroundColor: `${brand.hexCode}`}}>
-            {game.state == GameState.results ? brand.name : ''}
-          </div>
-        )}
-      </div>
-      <div className="grid grid-cols-1 gap-2">
-        {guesses.map((guess, index) => 
-          <div key={guess.id} className='h-40 rounded-md content-center'>
-            <div className="text-5xl flex bg-repeat-x bg-center bg-[length:20px_20px]" style={{backgroundImage: `radial-gradient(rgb(255 255 255 / 30%) 2px, transparent 0)`}}>{guess.isCorrect ? <FaCheck className='fill-green-500 bg-slate-950 fa-fw mx-auto' /> : <FaX className='fill-red-600 mx-auto fa-fw bg-slate-950' />}</div>
-          </div>
-        )}
-      </div>
-      
-      <div className="grid grid-cols-1 gap-2">
-        <DragDropProvider onDragEnd={onDragEnd}>
-          {guesses.map((guess, index) =>
-            <Sortable key={guess.id} id={guess.id} index={index} value={guess.name} disabled={game.state == GameState.active ? false : true} />
-          )}
-        </DragDropProvider>
-      </div>
-      <div className="col-span-3 mt-5">
-            {game.state == GameState.active ? 
-            <button
-              className="bg-indigo-500 p-2 px-5 rounded-md hover:bg-indigo-700 transition-colors text-2xl "
-              value="Submit"
-              onClick={(e) => {
-                  handleSubmitGuess();
-              }}
-            >Submit Guess</button>
-            : ''}
-
-
-            {game.result == GameResult.won ? 
-              <div className="text-4xl mb-5">
-                Congrats you win!
-              </div>
-            : ''}
-
-
-            {game.result == GameResult.lost ? 
-              <div className="text-4xl mb-5">
-                Better luck next time!
-              </div>
-            : ''}
-  
-
-            <div
-            className={(game.result != null ? '' : 'hidden')}>
-              <button
-                className={"bg-indigo-500 p-2 px-5 rounded-md hover:bg-indigo-700 transition-colors text-2xl"}
-                value="Submit"
-                onClick={(e) => {
-                    handleStartGame();
-                }}
-            >Play Again!</button>
-                
-                
-            </div>
+          <button
+            className={"bg-indigo-500 p-2 px-5 rounded-md hover:bg-indigo-700 transition-colors text-2xl"}
+            value="Submit"
+            onClick={(e) => {
+                handleStartGame();
+            }}
+          >Start a New Game</button>
         </div>
+      : ''}
+
+      {game.state == GameState.active || game.state == GameState.results ?
+        <div>
+          <h1 className="text-4xl font-bold mb-5">Match The Brands!</h1>
+          <h4 className="text-l mb-5">Test your brand knowledge and try to match the brand name to the brand colour</h4>
+          <div className="flex justify-center gap-5 mb-6">
+            {[...Array(game.maxAttempts).keys()].map((key) => 
+              <div className="w-20 h-20 bg-slate-800 rounded content-center" key={key}>
+              
+                <GuessResult  attempt={game.attempts[key]}/>     
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 gap-2">
+            {brands.map((brand, index) =>
+              <div className="h-40 rounded-md p-5 place-content-center text-xl" key={index} style={{ backgroundColor: `${brand.hexCode}`}}>
+                {game.state == GameState.results ? brand.name : ''}
+              </div>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-2">
+            {guesses.map((guess, index) => 
+              <div key={guess.id} className='h-40 rounded-md content-center'>
+                <div className="text-5xl flex bg-repeat-x bg-center bg-[length:20px_20px]" style={{backgroundImage: `radial-gradient(rgb(255 255 255 / 30%) 2px, transparent 0)`}}>{guess.isCorrect ? <FaCheck className='fill-green-500 bg-slate-950 fa-fw mx-auto' /> : <FaX className='fill-red-600 mx-auto fa-fw bg-slate-950' />}</div>
+              </div>
+            )}
+          </div>
+          
+          <div className="grid grid-cols-1 gap-2">
+            <DragDropProvider onDragEnd={onDragEnd}>
+              {guesses.map((guess, index) =>
+                <Sortable key={guess.id} id={guess.id} index={index} value={guess.name} disabled={game.state == GameState.active ? false : true} />
+              )}
+            </DragDropProvider>
+          </div>
+          <div className="col-span-3 mt-5">
+                {game.state == GameState.active ? 
+                <button
+                  className="bg-indigo-500 p-2 px-5 rounded-md hover:bg-indigo-700 transition-colors text-2xl "
+                  value="Submit"
+                  onClick={(e) => {
+                      handleSubmitGuess();
+                  }}
+                >Submit Guess</button>
+                : ''}
+
+
+                {game.result == GameResult.won ? 
+                  <div className="text-4xl mb-5">
+                    Congrats you win!
+                  </div>
+                : ''}
+
+
+                {game.result == GameResult.lost ? 
+                  <div className="text-4xl mb-5">
+                    Better luck next time!
+                  </div>
+                : ''}
+      
+
+                <div
+                className={(game.result != null ? '' : 'hidden')}>
+                  <button
+                    className={"bg-indigo-500 p-2 px-5 rounded-md hover:bg-indigo-700 transition-colors text-2xl"}
+                    value="Submit"
+                    onClick={(e) => {
+                        handleStartGame();
+                    }}
+                >Play Again!</button>  
+                </div>
+            </div>
+          </div>
+        </div>
+      : ''}
+      <div className="mt-10 py-2 text-white/20">
+        <p><strong>ChatGPT Usage:</strong></p>
+        <p>Prompt Tokens: {cost.prompt_tokens} // Prompt Cost: ${(cost.prompt_cost).toFixed(8)} USD // Completion Tokens: {cost.completion_tokens} // Completion Cost: ${(cost.completion_cost).toFixed(8)} USD</p>     
+        <p>Total Cost: ${(cost.prompt_cost + cost.completion_cost).toFixed(8)} USD</p>         
       </div>
-    </div>
-    : ''}
+     
     </>
   )   
 }
